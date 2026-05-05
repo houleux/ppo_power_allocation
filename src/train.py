@@ -3,7 +3,7 @@ from stable_baselines3.common.env_checker import check_env
 from gym_env import WirelessAllocationEnv
 
 # 1. Instantiate the Environment
-env = WirelessAllocationEnv(num_users=4, p_max=10.0)
+env = WirelessAllocationEnv(num_users=6, p_max=10.0)
 
 # Optional but highly recommended: Verify your custom environment meets Gymnasium standards
 check_env(env, warn=True)
@@ -25,14 +25,14 @@ model = PPO(
 print("--- Starting PPO Training ---")
 # 100,000 timesteps is a good starting point for a 4-user continuous space.
 # For a production model or research paper, this might be 1M - 5M timesteps.
-model.learn(total_timesteps=100000)
+model.learn(total_timesteps=200000)
 
 # Save the trained model
-model.save("ppo_pf_wireless_model")
+model.save("ppo_pf_wireless_model_user6")
 print("Model Saved Successfully.")
 
 # Load the trained model
-trained_model = PPO.load("ppo_pf_wireless_model")
+trained_model = PPO.load("ppo_pf_wireless_model_user6")
 
 # Reset the environment for evaluation
 obs, info = env.reset()
