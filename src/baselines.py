@@ -163,3 +163,37 @@ def fractional_programming_power_allocation(H, P_max, noise_variance, iterations
             p = p * (P_max / total_p)
             
     return p
+
+def wmmse_pf_power_allocation(H, P_max, noise_variance, dynamic_weights, iterations=20):
+    """Proportional Fairness Baseline"""
+    num_users = H.shape[0]
+    v = np.sqrt(P_max / num_users) * np.ones(num_users)
+    u, w = np.zeros(num_users), np.zeros(num_users)
+    
+    for _ in range(iterations):
+        for k in range(num_users):
+            interference = sum((np.abs(H[k, j]) * v[j])**2 for j in range(num_users)) + noise_variance
+            u[k] = (np.abs(H[k, k]) * v[k]) / interference
+            
+        for k in range(num_users):
+            w[k] = 1 / (1 - u[k] * np.abs(H[k, k]) * v[k])
+            
+        a, b = np.zeros(num_users), np.zeros(num_users)
+        for k in range(num_users):
+            a[k] = dynamic_weights[k] * w[k] * u[k] * np.abs(H[k, k])
+            b[k] = sum(dynamic_weights[j] * w[j] * (u[j]**2) * (np.abs(H[j, k])**2) for j in range(num_users))
+            
+        b = np.maximum(b, 1e-12) 
+        
+        if np.sum((a / b)**2) <= P_max:
+            v = a / b
+        else:
+            low, high = 0.0, 1e4
+            for _ in range(30):
+                mu = (low + high) / 2
+                if np.sum((a / (b + mu))**2) > P_max:
+                    low = mu
+                else:
+                    high = mu
+            v = a / (b + high)
+    return v**2
