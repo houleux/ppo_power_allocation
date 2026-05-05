@@ -72,6 +72,64 @@ def wmmse_power_allocation(H, P_max, noise_variance, iterations=100):
             
     return v**2
 
+def wmmse_power_allocation_pf(H, P_max, noise_variance, weights=None, iterations=100, p_floor=0.0):
+    """
+    Allocates power using weighted WMMSE with complex-valued updates and an optional power floor.
+    """
+    num_users = H.shape[0]
+    if weights is None:
+        weights = np.ones(num_users)
+    weights = np.asarray(weights, dtype=float)
+    weights = np.maximum(weights, 0.0)
+
+    v = np.sqrt(P_max / num_users) * np.ones(num_users)
+    u = np.zeros(num_users, dtype=complex)
+    w = np.zeros(num_users)
+
+    for _ in range(iterations):
+        # 1. Update receive filters (u)
+        for k in range(num_users):
+            denom = sum((np.abs(H[k, j]) * v[j])**2 for j in range(num_users)) + noise_variance
+            u[k] = (H[k, k] * v[k]) / denom
+
+        # 2. Update MSE weights (w)
+        for k in range(num_users):
+            denom = sum((np.abs(H[k, j]) * v[j])**2 for j in range(num_users)) + noise_variance
+            e_k = 1.0 - 2.0 * np.real(u[k] * H[k, k] * v[k]) + (np.abs(u[k])**2) * denom
+            w[k] = weights[k] / max(e_k, 1e-9)
+
+        # 3. Update transmit powers (v) using bisection on KKT multiplier
+        a = np.zeros(num_users)
+        b = np.zeros(num_users)
+        for k in range(num_users):
+            a[k] = np.real(w[k] * u[k] * H[k, k])
+            b[k] = sum(w[j] * (np.abs(u[j])**2) * (np.abs(H[j, k])**2) for j in range(num_users))
+
+        low, high = 0.0, 1e4
+        tolerance = 1e-5
+
+        if np.sum((np.maximum(a, 0.0) / np.maximum(b, 1e-12))**2) <= P_max:
+            v = np.maximum(a / np.maximum(b, 1e-12), 0.0)
+        else:
+            while high - low > tolerance:
+                mu = (low + high) / 2
+                v_temp = np.maximum(a / (b + mu), 0.0)
+                if np.sum(v_temp**2) > P_max:
+                    low = mu
+                else:
+                    high = mu
+            v = np.maximum(a / (b + high), 0.0)
+
+        # Optional floor + projection to sum-power constraint
+        if p_floor > 0.0:
+            p = np.maximum(v**2, p_floor)
+            total_p = np.sum(p)
+            if total_p > P_max:
+                p = p * (P_max / total_p)
+            v = np.sqrt(p)
+
+    return v**2
+
 def max_min_power_allocation(H, P_max, noise_variance):
     """
     Allocates power to guarantee the exact same SINR (and rate) for all users.
@@ -103,6 +161,7 @@ def max_min_power_allocation(H, P_max, noise_variance):
         try:
             # Try to calculate the required power vector to hit this target SINR
             p_req = np.linalg.solve(A, b)
+            
             
             # Check feasibility: Powers must be positive and sum must be <= P_max
             if np.all(p_req > 0) and np.sum(p_req) <= P_max:
@@ -163,37 +222,3 @@ def fractional_programming_power_allocation(H, P_max, noise_variance, iterations
             p = p * (P_max / total_p)
             
     return p
-
-def wmmse_pf_power_allocation(H, P_max, noise_variance, dynamic_weights, iterations=20):
-    """Proportional Fairness Baseline"""
-    num_users = H.shape[0]
-    v = np.sqrt(P_max / num_users) * np.ones(num_users)
-    u, w = np.zeros(num_users), np.zeros(num_users)
-    
-    for _ in range(iterations):
-        for k in range(num_users):
-            interference = sum((np.abs(H[k, j]) * v[j])**2 for j in range(num_users)) + noise_variance
-            u[k] = (np.abs(H[k, k]) * v[k]) / interference
-            
-        for k in range(num_users):
-            w[k] = 1 / (1 - u[k] * np.abs(H[k, k]) * v[k])
-            
-        a, b = np.zeros(num_users), np.zeros(num_users)
-        for k in range(num_users):
-            a[k] = dynamic_weights[k] * w[k] * u[k] * np.abs(H[k, k])
-            b[k] = sum(dynamic_weights[j] * w[j] * (u[j]**2) * (np.abs(H[j, k])**2) for j in range(num_users))
-            
-        b = np.maximum(b, 1e-12) 
-        
-        if np.sum((a / b)**2) <= P_max:
-            v = a / b
-        else:
-            low, high = 0.0, 1e4
-            for _ in range(30):
-                mu = (low + high) / 2
-                if np.sum((a / (b + mu))**2) > P_max:
-                    low = mu
-                else:
-                    high = mu
-            v = a / (b + high)
-    return v**2
